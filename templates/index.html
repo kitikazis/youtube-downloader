@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Descarga tus propios videos de YouTube en MP3 o MP4 desde tu equipo.">
+  <meta name="color-scheme" content="dark">
+  <title>YouTube Downloader</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="preconnect" href="https://i.ytimg.com">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <div class="brand">
+        <span class="brand__logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M9.5 16.5v-9l7 4.5-7 4.5Z"/></svg>
+        </span>
+        <div class="brand__text">
+          <h1 class="brand__title">YouTube <span>Downloader</span></h1>
+          <p class="brand__subtitle">Guarda tu propio contenido en MP3 o MP4</p>
+        </div>
+      </div>
+
+      <div class="status-pill status-pill--loading" id="serverStatus" role="status" aria-live="polite">
+        <span class="status-pill__dot" aria-hidden="true"></span>
+        <span class="status-pill__text">Conectando...</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container" id="contenido">
+    <!-- ===================== Descargador ===================== -->
+    <section class="card card--main" aria-labelledby="tituloDescarga">
+      <h2 class="card__title" id="tituloDescarga">Nueva descarga</h2>
+      <p class="card__hint">Pega el enlace del video y elige el formato de salida.</p>
+
+      <form id="downloadForm" novalidate>
+        <div class="field">
+          <label class="field__label" for="urlInput">Enlace del video</label>
+          <div class="input-group">
+            <span class="input-group__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M10.6 13.4a1 1 0 0 1 0-1.4l1.4-1.4a3 3 0 0 1 4.2 4.2l-1.1 1.1a1 1 0 0 1-1.4-1.4l1.1-1.1a1 1 0 0 0-1.4-1.4L12 13.4a1 1 0 0 1-1.4 0Zm2.8-2.8a1 1 0 0 1 0 1.4L12 13.4a3 3 0 0 1-4.2 4.2l1.1-1.1a1 1 0 1 1 1.4 1.4L9.2 10.6a1 1 0 0 0 1.4 1.4L12 10.6a1 1 0 0 1 1.4 0Z"/></svg>
+            </span>
+            <input
+              type="url"
+              id="urlInput"
+              name="url"
+              class="input"
+              placeholder="https://www.youtube.com/watch?v=..."
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="urlHint"
+              required>
+            <button type="button" class="btn btn--ghost" id="infoBtn">
+              <span class="btn__spinner" aria-hidden="true"></span>
+              <span class="btn__label">Ver info</span>
+            </button>
+          </div>
+          <p class="field__hint" id="urlHint">Admite enlaces de youtube.com, youtu.be y Shorts.</p>
+        </div>
+
+        <!-- Informacion del video -->
+        <article class="video-card" id="videoInfo" hidden>
+          <div class="video-card__thumb">
+            <img id="videoThumb" src="" alt="" loading="lazy" decoding="async">
+            <span class="video-card__duration" id="videoDuration">0:00</span>
+          </div>
+          <div class="video-card__body">
+            <h3 class="video-card__title" id="videoTitle"></h3>
+            <p class="video-card__author">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-8 1.7-8 4.5V21h16v-2.5c0-2.8-4.7-4.5-8-4.5Z"/></svg>
+              <span id="videoAuthor"></span>
+            </p>
+            <ul class="chips" id="videoChips"></ul>
+          </div>
+        </article>
+
+        <!-- Formato de salida -->
+        <fieldset class="formats">
+          <legend class="field__label">Formato de salida</legend>
+          <div class="formats__grid">
+            <label class="format" for="formatMp3">
+              <input type="radio" id="formatMp3" name="format" value="mp3" checked>
+              <span class="format__box">
+                <span class="format__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3v10.6A4 4 0 1 0 14 17V7h4V3h-6Z"/></svg>
+                </span>
+                <span class="format__text">
+                  <strong>MP3</strong>
+                  <small>Solo audio &middot; archivo ligero</small>
+                </span>
+                <span class="format__check" aria-hidden="true"></span>
+              </span>
+            </label>
+
+            <label class="format" for="formatMp4">
+              <input type="radio" id="formatMp4" name="format" value="mp4">
+              <span class="format__box">
+                <span class="format__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 5h11a2 2 0 0 1 2 2v2.4l4-2.4v10l-4-2.4V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg>
+                </span>
+                <span class="format__text">
+                  <strong>MP4</strong>
+                  <small>Video + audio &middot; maxima calidad</small>
+                </span>
+                <span class="format__check" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <button type="submit" class="btn btn--primary btn--block" id="downloadBtn">
+          <span class="btn__spinner" aria-hidden="true"></span>
+          <svg class="btn__icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 3v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L10 13.2V3h2ZM4 19h16v2H4v-2Z"/></svg>
+          <span class="btn__label">Descargar</span>
+        </button>
+      </form>
+
+      <!-- Barra de progreso -->
+      <div class="progress" id="progress" hidden>
+        <div class="progress__head">
+          <span class="progress__label" id="progressLabel">Preparando...</span>
+          <span class="progress__value" id="progressValue">0%</span>
+        </div>
+        <div class="progress__track" id="progressTrack" role="progressbar"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progreso de la descarga">
+          <div class="progress__bar" id="progressBar"></div>
+        </div>
+      </div>
+
+      <!-- Mensajes de exito / error -->
+      <div class="alert" id="alert" role="status" aria-live="polite" hidden>
+        <span class="alert__icon" aria-hidden="true"></span>
+        <div class="alert__body">
+          <strong class="alert__title" id="alertTitle"></strong>
+          <p class="alert__text" id="alertText"></p>
+        </div>
+        <button type="button" class="alert__close" id="alertClose" aria-label="Cerrar mensaje">&times;</button>
+      </div>
+    </section>
+
+    <!-- ===================== Historial ===================== -->
+    <section class="card" aria-labelledby="tituloHistorial">
+      <div class="card__header">
+        <div>
+          <h2 class="card__title" id="tituloHistorial">
+            Historial <span class="badge" id="historyCount">0</span>
+          </h2>
+          <p class="card__hint">Archivos guardados en la carpeta <code>downloads/</code>.</p>
+        </div>
+        <button type="button" class="btn btn--ghost btn--sm" id="refreshHistoryBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 5V2L8 6l4 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7Z"/></svg>
+          <span class="btn__label">Actualizar</span>
+        </button>
+      </div>
+
+      <ul class="history" id="historyList"></ul>
+
+      <p class="empty-state" id="historyEmpty">
+        Todavia no hay descargas. Las que hagas apareceran aqui.
+      </p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p class="disclaimer">
+        <strong>Aviso legal:</strong> usa esta herramienta unicamente con contenido propio
+        o con material cuya licencia permita la descarga. Descargar obras protegidas por
+        derechos de autor sin autorizacion puede infringir la ley y los Terminos de
+        Servicio de YouTube. El uso es responsabilidad exclusiva de quien la ejecuta.
+      </p>
+      <p class="site-footer__meta">Uso local y personal &middot; Flask + yt-dlp</p>
+    </div>
+  </footer>
+
+  <!-- Plantilla de una fila del historial -->
+  <template id="historyItemTemplate">
+    <li class="history__item">
+      <div class="history__thumb">
+        <img alt="" loading="lazy" decoding="async" data-role="thumb">
+        <span class="history__badge" data-role="format"></span>
+      </div>
+      <div class="history__body">
+        <p class="history__title" data-role="title"></p>
+        <p class="history__meta" data-role="meta"></p>
+      </div>
+      <div class="history__actions">
+        <a class="btn btn--ghost btn--sm" data-role="download" download>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L10 13.2V3h2ZM4 19h16v2H4v-2Z"/></svg>
+          <span class="btn__label">Guardar</span>
+        </a>
+        <button type="button" class="btn btn--danger btn--sm" data-role="delete">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2ZM6 9h12l-1 12H7L6 9Z"/></svg>
+          <span class="btn__label">Eliminar</span>
+        </button>
+      </div>
+    </li>
+  </template>
+
+  <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Normaliza los finales de linea: LF en el repositorio, nativos en el disco.
+* text=auto eol=lf
+
+# Binarios: nunca convertir.
+*.png binary
+*.jpg binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary

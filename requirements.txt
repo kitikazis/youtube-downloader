@@ -1,0 +1,17 @@
+# --- Framework web ---
+Flask==2.3.3
+Flask-CORS==4.0.0
+
+# Werkzeug se fija explicitamente: Flask 2.3.x no es compatible con Werkzeug 3.x.
+Werkzeug==2.3.8
+
+# --- Descargas ---
+# NOTA: la version 2023.11.16 ya NO puede descargar de YouTube (responde
+# "HTTP Error 403: Forbidden"): YouTube cambia su firma de streams cada pocas
+# semanas y solo las versiones recientes de yt-dlp la siguen. Se deja sin techo
+# a proposito; actualizala con `pip install -U yt-dlp` cuando algo deje de bajar.
+yt-dlp>=2025.1.1
+
+# --- Utilidades ---
+requests==2.31.0
+python-dotenv==1.0.0
