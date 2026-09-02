@@ -82,12 +82,28 @@ es un requisito.
 | Debian / Ubuntu  | `sudo apt install ffmpeg` |
 | Fedora           | `sudo dnf install ffmpeg` |
 
-Comprueba la instalacion con `ffmpeg -version`. Si no esta en el `PATH`,
-indica su ruta en el `.env`:
+Comprueba la instalacion con `ffmpeg -version`.
+
+#### ffmpeg instalado pero no detectado
+
+`winget install Gyan.FFmpeg` instala el binario pero **no lo anade al
+`PATH`**, asi que la aplicacion sigue avisando de que falta. Indica su ruta
+en el `.env` apuntando a la **carpeta `bin`**, que contiene `ffmpeg.exe` y
+`ffprobe.exe` (yt-dlp necesita los dos):
 
 ```env
-FFMPEG_LOCATION=C:\ffmpeg\bin\ffmpeg.exe
+FFMPEG_LOCATION=C:/Users/TU_USUARIO/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.1-full_build/bin
 ```
+
+Para localizar esa carpeta en tu equipo:
+
+```powershell
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe |
+  Select-Object -First 1 -ExpandProperty FullName
+```
+
+Reinicia el servidor despues de editar el `.env`: la configuracion se lee al
+arrancar. Verifica con `POST /api/health`, que debe devolver `"ffmpeg": true`.
 
 ### 4. Configurar las variables de entorno (opcional)
 
@@ -259,7 +275,7 @@ Todas las variables se definen en el `.env` (ver `.env.example`).
 
 | Sintoma | Causa y solucion |
 |---------|------------------|
-| La cabecera muestra "Sin ffmpeg" | ffmpeg no esta en el `PATH`. Instalalo o define `FFMPEG_LOCATION` y reinicia. |
+| Avisa de que falta ffmpeg **aunque ya lo instalaste** | Caso tipico de `winget`: no lo anade al `PATH`. Ver "ffmpeg instalado pero no detectado". |
 | `HTTP Error 403: Forbidden` al descargar | yt-dlp esta desactualizado. `pip install -U yt-dlp` y reinicia el servidor. |
 | "Este video no tiene ningun formato con video y audio en un mismo archivo" | Falta ffmpeg. Instalalo y reinicia el servidor. |
 | `ERROR: Sign in to confirm you're not a bot` | YouTube esta limitando tu IP. Actualiza yt-dlp: `pip install -U yt-dlp`. |
