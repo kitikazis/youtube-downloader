@@ -21,13 +21,7 @@
     "i"
   );
 
-  var PLACEHOLDER_THUMB =
-    "data:image/svg+xml;charset=utf-8," +
-    encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90">' +
-        '<rect width="160" height="90" fill="#282828"/>' +
-        '<path d="M68 32v26l22-13z" fill="#ff0000"/></svg>'
-    );
+  var HELP_DEFAULT = "Admite enlaces de youtube.com, youtu.be y Shorts.";
 
   /* ------------------------------------------------------------------ */
   /* Referencias al DOM                                                  */
@@ -35,36 +29,28 @@
   var el = {
     form: document.getElementById("downloadForm"),
     url: document.getElementById("urlInput"),
-    urlGroup: document.querySelector(".input-group"),
-    urlHint: document.getElementById("urlHint"),
+    helpText: document.getElementById("helpText"),
     infoBtn: document.getElementById("infoBtn"),
     downloadBtn: document.getElementById("downloadBtn"),
     videoInfo: document.getElementById("videoInfo"),
-    videoThumb: document.getElementById("videoThumb"),
     videoTitle: document.getElementById("videoTitle"),
     videoAuthor: document.getElementById("videoAuthor"),
     videoDuration: document.getElementById("videoDuration"),
-    videoChips: document.getElementById("videoChips"),
-    progress: document.getElementById("progress"),
-    progressBar: document.getElementById("progressBar"),
-    progressTrack: document.getElementById("progressTrack"),
+    videoThumb: document.getElementById("videoThumb"),
+    progressSection: document.getElementById("progressSection"),
     progressLabel: document.getElementById("progressLabel"),
     progressValue: document.getElementById("progressValue"),
-    alert: document.getElementById("alert"),
-    alertIcon: document.querySelector(".alert__icon"),
-    alertTitle: document.getElementById("alertTitle"),
-    alertText: document.getElementById("alertText"),
-    alertClose: document.getElementById("alertClose"),
+    progressFill: document.getElementById("progressFill"),
+    progressStatus: document.getElementById("progressStatus"),
+    message: document.getElementById("message"),
+    messageIcon: document.getElementById("messageIcon"),
+    messageText: document.getElementById("messageText"),
     historyList: document.getElementById("historyList"),
     historyEmpty: document.getElementById("historyEmpty"),
-    historyCount: document.getElementById("historyCount"),
-    refreshBtn: document.getElementById("refreshHistoryBtn"),
-    serverStatus: document.getElementById("serverStatus"),
     template: document.getElementById("historyItemTemplate")
   };
 
   var state = {
-    videoInfo: null,
     busy: false,
     progressTimer: null,
     ffmpeg: true
@@ -98,12 +84,6 @@
     return size.toFixed(index === 0 ? 0 : 1) + " " + units[index];
   }
 
-  function formatNumber(value) {
-    var number = Number(value);
-    if (!isFinite(number) || number <= 0) return null;
-    return number.toLocaleString("es-ES");
-  }
-
   function formatDate(iso) {
     if (!iso) return "";
     var date = new Date(iso);
@@ -119,6 +99,14 @@
 
   function isValidUrl(value) {
     return YOUTUBE_RE.test(String(value || "").trim());
+  }
+
+  function show(node) {
+    node.classList.remove("hidden");
+  }
+
+  function hide(node) {
+    node.classList.add("hidden");
   }
 
   /* ------------------------------------------------------------------ */
@@ -161,75 +149,61 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Mensajes y estados de UI                                            */
+  /* Mensajes y estados de la interfaz                                   */
   /* ------------------------------------------------------------------ */
-  var ALERT_ICONS = { success: "\u2713", error: "!", info: "i" };
-
-  function showAlert(type, title, text) {
-    el.alert.className = "alert alert--" + type;
-    el.alertIcon.textContent = ALERT_ICONS[type] || "i";
-    el.alertTitle.textContent = title;
-    el.alertText.textContent = text || "";
-    el.alert.hidden = false;
+  function showMessage(type, text) {
+    el.message.className =
+      "message " + (type === "success" ? "success-message" : "error-message");
+    el.messageIcon.textContent = type === "success" ? "\u2713" : "\u26a0";
+    el.messageText.textContent = text;
+    show(el.message);
   }
 
-  function hideAlert() {
-    el.alert.hidden = true;
+  function hideMessage() {
+    hide(el.message);
   }
 
-  function setButtonLoading(button, loading) {
-    button.classList.toggle("is-loading", loading);
-    button.disabled = loading;
+  function setHelpText(text) {
+    el.helpText.textContent = text || HELP_DEFAULT;
   }
 
   function setBusy(busy) {
     state.busy = busy;
     el.url.disabled = busy;
     el.infoBtn.disabled = busy;
-    setButtonLoading(el.downloadBtn, busy);
-  }
-
-  function setFieldError(message) {
-    el.urlHint.textContent =
-      message || "Admite enlaces de youtube.com, youtu.be y Shorts.";
-    el.urlHint.classList.toggle("field__hint--error", Boolean(message));
-    el.urlGroup.classList.toggle("input-group--error", Boolean(message));
-  }
-
-  function setServerStatus(variant, text, title) {
-    el.serverStatus.className = "status-pill status-pill--" + variant;
-    el.serverStatus.querySelector(".status-pill__text").textContent = text;
-    el.serverStatus.title = title || text;
+    el.downloadBtn.disabled = busy;
+    el.downloadBtn.textContent = busy ? "Descargando..." : "Descargar";
   }
 
   /* ------------------------------------------------------------------ */
   /* Barra de progreso                                                   */
   /* ------------------------------------------------------------------ */
   /*
-   * La API responde una sola vez al terminar la descarga, asi que el
+   * La API responde una sola vez, al terminar la descarga, asi que el
    * porcentaje se estima: avanza rapido al principio y se frena cerca del
    * 90 % hasta que llega la respuesta real del servidor.
    */
   var PROGRESS_PHASES = [
-    { until: 20, label: "Consultando el video..." },
-    { until: 65, label: "Descargando desde YouTube..." },
-    { until: 90, label: "Procesando y convirtiendo..." },
-    { until: 100, label: "Guardando archivo..." }
+    { until: 20, label: "Consultando", status: "Obteniendo los datos del video..." },
+    { until: 65, label: "Descargando", status: "Descargando desde YouTube..." },
+    { until: 90, label: "Procesando", status: "Convirtiendo el archivo..." },
+    { until: 101, label: "Guardando", status: "Guardando en la carpeta de descargas..." }
   ];
 
-  function paintProgress(percent, label) {
+  function paintProgress(percent, phase) {
     var value = Math.min(100, Math.max(0, Math.round(percent)));
-    el.progressBar.style.width = value + "%";
+    el.progressFill.style.width = value + "%";
     el.progressValue.textContent = value + "%";
-    el.progressTrack.setAttribute("aria-valuenow", String(value));
-    if (label) el.progressLabel.textContent = label;
+    if (phase) {
+      el.progressLabel.textContent = phase.label;
+      el.progressStatus.textContent = phase.status;
+    }
   }
 
   function startProgress() {
     stopProgress();
-    el.progress.hidden = false;
-    el.progress.classList.remove("is-done");
-    paintProgress(0, PROGRESS_PHASES[0].label);
+    show(el.progressSection);
+    paintProgress(0, PROGRESS_PHASES[0]);
 
     var percent = 0;
     state.progressTimer = window.setInterval(function () {
@@ -238,7 +212,7 @@
       var phase = PROGRESS_PHASES.find(function (item) {
         return percent < item.until;
       });
-      paintProgress(percent, phase ? phase.label : null);
+      paintProgress(percent, phase);
     }, 320);
   }
 
@@ -252,15 +226,16 @@
   function finishProgress(success) {
     stopProgress();
     if (!success) {
-      el.progress.hidden = true;
+      hide(el.progressSection);
       return;
     }
-    el.progress.classList.add("is-done");
-    paintProgress(100, "Descarga completada");
+    paintProgress(100, {
+      label: "Completado",
+      status: "El archivo ya esta en tu carpeta de descargas."
+    });
     window.setTimeout(function () {
-      el.progress.hidden = true;
-      el.progress.classList.remove("is-done");
-      paintProgress(0, PROGRESS_PHASES[0].label);
+      hide(el.progressSection);
+      paintProgress(0, PROGRESS_PHASES[0]);
     }, 2200);
   }
 
@@ -268,50 +243,41 @@
   /* Informacion del video                                               */
   /* ------------------------------------------------------------------ */
   function renderVideoInfo(info) {
-    state.videoInfo = info;
-
-    el.videoThumb.src = info.thumbnail || PLACEHOLDER_THUMB;
-    el.videoThumb.alt = "Miniatura de " + (info.title || "el video");
     el.videoTitle.textContent = info.title || "Sin titulo";
     el.videoAuthor.textContent = info.author || "Desconocido";
     el.videoDuration.textContent =
       info.duration_formatted || formatDuration(info.duration);
 
-    var chips = [];
-    var views = formatNumber(info.views);
-    if (views) chips.push(views + " visitas");
-    if (info.upload_date) chips.push("Publicado el " + info.upload_date);
-    if (info.is_live) chips.push("En directo");
+    if (info.thumbnail) {
+      el.videoThumb.src = info.thumbnail;
+      el.videoThumb.alt = "Miniatura de " + (info.title || "el video");
+      show(el.videoThumb);
+    } else {
+      el.videoThumb.removeAttribute("src");
+      hide(el.videoThumb);
+    }
 
-    el.videoChips.innerHTML = "";
-    chips.forEach(function (text) {
-      var item = document.createElement("li");
-      item.textContent = text;
-      el.videoChips.appendChild(item);
-    });
-
-    el.videoInfo.hidden = false;
+    show(el.videoInfo);
   }
 
   function clearVideoInfo() {
-    state.videoInfo = null;
-    el.videoInfo.hidden = true;
+    hide(el.videoInfo);
     el.videoThumb.removeAttribute("src");
-    el.videoChips.innerHTML = "";
   }
 
   function loadVideoInfo() {
     var url = el.url.value.trim();
 
     if (!isValidUrl(url)) {
-      setFieldError("Introduce un enlace valido de YouTube.");
+      setHelpText("Introduce un enlace valido de YouTube.");
       el.url.focus();
       return Promise.resolve(null);
     }
 
-    setFieldError(null);
-    hideAlert();
-    setButtonLoading(el.infoBtn, true);
+    setHelpText(null);
+    hideMessage();
+    el.infoBtn.disabled = true;
+    el.infoBtn.textContent = "Buscando...";
 
     return request("/video-info", { method: "POST", body: { url: url } })
       .then(function (info) {
@@ -320,11 +286,12 @@
       })
       .catch(function (error) {
         clearVideoInfo();
-        showAlert("error", "No se pudo obtener la informacion", error.message);
+        showMessage("error", error.message);
         return null;
       })
       .then(function (info) {
-        setButtonLoading(el.infoBtn, false);
+        el.infoBtn.disabled = false;
+        el.infoBtn.textContent = "Ver info";
         return info;
       });
   }
@@ -345,43 +312,42 @@
     var format = selectedFormat();
 
     if (!isValidUrl(url)) {
-      setFieldError("Introduce un enlace valido de YouTube.");
+      setHelpText("Introduce un enlace valido de YouTube.");
       el.url.focus();
       return;
     }
 
     if (format === "mp3" && !state.ffmpeg) {
-      showAlert(
+      showMessage(
         "error",
-        "ffmpeg no esta disponible",
-        "Instala ffmpeg y reinicia el servidor para convertir a MP3, o elige MP4."
+        "ffmpeg no esta instalado, asi que no se puede generar el MP3. " +
+          "Instalalo y reinicia el servidor."
       );
       return;
     }
 
-    setFieldError(null);
-    hideAlert();
+    setHelpText(null);
+    hideMessage();
     setBusy(true);
     startProgress();
 
     request("/download", { method: "POST", body: { url: url, format: format } })
       .then(function (entry) {
         finishProgress(true);
-        showAlert(
+        showMessage(
           "success",
-          "Descarga completada",
           entry.title +
             " (" +
             entry.format.toUpperCase() +
             ", " +
             entry.size_formatted +
-            ") ya esta en tu carpeta de descargas."
+            ") se descargo correctamente."
         );
         return loadHistory();
       })
       .catch(function (error) {
         finishProgress(false);
-        showAlert("error", "No se pudo descargar", error.message);
+        showMessage("error", error.message);
       })
       .then(function () {
         setBusy(false);
@@ -398,21 +364,13 @@
     };
 
     node.dataset.filename = entry.filename;
+    pick("filename").textContent = entry.filename;
 
-    var thumb = pick("thumb");
-    thumb.src = entry.thumbnail || PLACEHOLDER_THUMB;
-    thumb.alt = "";
-
-    pick("format").textContent = (entry.format || "").toUpperCase();
-    pick("title").textContent = entry.title || entry.filename;
-    pick("title").title = entry.filename;
-
-    var meta = [entry.size_formatted];
+    var meta = [(entry.format || "").toUpperCase(), entry.size_formatted];
     if (entry.duration_formatted) meta.push(entry.duration_formatted);
-    if (entry.author && entry.author !== "Desconocido") meta.push(entry.author);
     var date = formatDate(entry.downloaded_at);
     if (date) meta.push(date);
-    pick("meta").textContent = meta.filter(Boolean).join("  \u00b7  ");
+    pick("meta").textContent = meta.filter(Boolean).join(" \u00b7 ");
 
     var link = pick("download");
     link.href = API_BASE + "/download-file/" + encodeURIComponent(entry.filename);
@@ -423,8 +381,12 @@
 
   function renderHistory(items) {
     el.historyList.innerHTML = "";
-    el.historyCount.textContent = String(items.length);
-    el.historyEmpty.hidden = items.length > 0;
+
+    if (items.length === 0) {
+      show(el.historyEmpty);
+      return;
+    }
+    hide(el.historyEmpty);
 
     var fragment = document.createDocumentFragment();
     items.forEach(function (entry) {
@@ -434,16 +396,12 @@
   }
 
   function loadHistory() {
-    setButtonLoading(el.refreshBtn, true);
     return request("/history")
       .then(function (data) {
         renderHistory(data.items || []);
       })
       .catch(function (error) {
-        showAlert("error", "No se pudo cargar el historial", error.message);
-      })
-      .then(function () {
-        setButtonLoading(el.refreshBtn, false);
+        showMessage("error", "No se pudo cargar el historial: " + error.message);
       });
   }
 
@@ -453,23 +411,20 @@
     );
     if (!confirmed) return;
 
-    item.classList.add("is-removing");
-
     request("/delete/" + encodeURIComponent(filename), { method: "DELETE" })
       .then(function () {
-        showAlert("info", "Archivo eliminado", filename);
+        hideMessage();
         return loadHistory();
       })
       .catch(function (error) {
-        item.classList.remove("is-removing");
-        showAlert("error", "No se pudo eliminar", error.message);
+        showMessage("error", error.message);
       });
   }
 
   function handleHistoryClick(event) {
     var button = event.target.closest('[data-role="delete"]');
     if (!button) return;
-    var item = button.closest(".history__item");
+    var item = button.closest(".history-item");
     if (!item) return;
     deleteEntry(item.dataset.filename, item);
   }
@@ -481,29 +436,17 @@
     return request("/health", { method: "POST" })
       .then(function (data) {
         state.ffmpeg = Boolean(data.ffmpeg);
-        if (state.ffmpeg) {
-          setServerStatus(
-            "ok",
-            "Servidor listo",
-            "yt-dlp " + (data.yt_dlp || "") + " | ffmpeg disponible"
-          );
-        } else {
-          setServerStatus(
-            "warn",
-            "Sin ffmpeg",
-            "ffmpeg no esta instalado: MP3 no disponible"
-          );
-          showAlert(
-            "info",
-            "ffmpeg no esta instalado",
-            "YouTube entrega el video y el audio por separado, asi que ffmpeg es" +
-              " necesario para el MP3 y para la mayoria de los MP4. Consulta el" +
-              " README para instalarlo y reinicia el servidor."
+        if (!state.ffmpeg) {
+          showMessage(
+            "error",
+            "ffmpeg no esta instalado. YouTube entrega el video y el audio por " +
+              "separado, asi que hace falta para el MP3 y para la mayoria de los " +
+              "MP4. Consulta el README para instalarlo y reinicia el servidor."
           );
         }
       })
       .catch(function (error) {
-        setServerStatus("error", "Sin conexion", error.message);
+        showMessage("error", "No hay conexion con el servidor: " + error.message);
       });
   }
 
@@ -513,14 +456,12 @@
   function bindEvents() {
     el.form.addEventListener("submit", handleSubmit);
     el.infoBtn.addEventListener("click", loadVideoInfo);
-    el.refreshBtn.addEventListener("click", loadHistory);
-    el.alertClose.addEventListener("click", hideAlert);
     el.historyList.addEventListener("click", handleHistoryClick);
 
     // Al cambiar la URL, la informacion mostrada deja de ser valida.
     el.url.addEventListener("input", function () {
-      setFieldError(null);
-      if (state.videoInfo) clearVideoInfo();
+      setHelpText(null);
+      clearVideoInfo();
     });
 
     // Enter en el campo de URL consulta la informacion en vez de enviar.
