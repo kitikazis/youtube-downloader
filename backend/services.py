@@ -566,6 +566,74 @@ class DownloadService:
         )
 
     # ------------------------------------------------------------------
+    # Cola de enlaces
+    # ------------------------------------------------------------------
+    def download_many(
+        self, urls: list[str], format_type: str = "mp3"
+    ) -> dict[str, Any]:
+        """Descarga una seleccion de enlaces, uno detras de otro.
+
+        A diferencia de una lista, aqui los videos los elige quien usa la
+        aplicacion. Un fallo no aborta la cola: se anota y se sigue.
+        """
+        if not isinstance(urls, list) or not urls:
+            raise ValidationError("Se esperaba una lista de enlaces en 'urls'.")
+
+        fmt = self.validate_format(format_type)
+        if fmt.requires_ffmpeg and not self.has_ffmpeg():
+            raise ValidationError(
+                "ffmpeg es necesario para generar MP3. Instalalo y vuelve a intentar "
+                "(o define FFMPEG_LOCATION en el .env)."
+            )
+
+        # Se descartan repetidos conservando el orden en que se pegaron.
+        vistos: set[str] = set()
+        seleccion: list[str] = []
+        for raw in urls:
+            video_id = self.extract_video_id(raw) if isinstance(raw, str) else None
+            if not video_id:
+                raise ValidationError(f"'{str(raw)[:60]}' no es un enlace valido.")
+            if video_id in vistos:
+                continue
+            vistos.add(video_id)
+            seleccion.append(raw.strip())
+
+        if len(seleccion) > self.playlist_max_items:
+            raise ValidationError(
+                f"Son {len(seleccion)} enlaces y el maximo por tanda es "
+                f"{self.playlist_max_items}. Ajusta PLAYLIST_MAX_ITEMS en el .env."
+            )
+
+        logger.info("Descargando una cola de %d enlace(s) como %s", len(seleccion), fmt.key)
+
+        descargadas: list[dict[str, Any]] = []
+        omitidas: list[dict[str, Any]] = []
+        fallidas: list[dict[str, Any]] = []
+
+        for posicion, url in enumerate(seleccion, start=1):
+            etiqueta = {"position": posicion, "title": url}
+            try:
+                entrada = self.download(url, fmt.key)
+                descargadas.append(entrada)
+            except DuplicateDownloadError as exc:
+                omitidas.append({**etiqueta, "reason": exc.message})
+            except ServiceError as exc:
+                logger.warning("Enlace %d fallo: %s", posicion, exc.message)
+                fallidas.append({**etiqueta, "reason": exc.message})
+
+        return {
+            "title": f"{len(seleccion)} enlace(s) seleccionado(s)",
+            "count": len(seleccion),
+            "format": fmt.key,
+            "requested": len(seleccion),
+            "downloaded": descargadas,
+            "skipped": omitidas,
+            "failed": fallidas,
+            "truncated": False,
+            "limit": self.playlist_max_items,
+        }
+
+    # ------------------------------------------------------------------
     # Listas de reproduccion
     # ------------------------------------------------------------------
     def extract_playlist_id(self, url: str) -> str | None:

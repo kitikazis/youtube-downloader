@@ -164,6 +164,18 @@ def download_playlist() -> tuple[Response, int]:
     return ok(result, status=201)
 
 
+@api_bp.post("/download-batch")
+def download_batch() -> tuple[Response, int]:
+    """Descarga una cola de enlaces elegidos por quien usa la aplicacion."""
+    body = json_body()
+    urls = body.get("urls")
+    if not isinstance(urls, list) or not urls:
+        raise ValidationError("El campo 'urls' debe ser una lista con al menos un enlace")
+
+    format_type = (body.get("format") or "mp3").strip().lower()
+    return ok(get_service().download_many(urls, format_type), status=201)
+
+
 @api_bp.get("/history")
 def history() -> tuple[Response, int]:
     """Lista las descargas disponibles en la carpeta local."""

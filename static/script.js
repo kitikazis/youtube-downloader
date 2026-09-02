@@ -21,10 +21,16 @@
     "i"
   );
 
-  var HELP_DEFAULT = "Admite videos y listas de reproduccion de YouTube.";
+  var HELP_DEFAULT =
+    "Admite videos, listas y varios enlaces pegados a la vez.";
 
   // Identificador de lista dentro de la URL (?list=...).
   var PLAYLIST_RE = /[?&]list=([A-Za-z0-9_-]+)/i;
+
+  // Localiza el id de cada enlace presente en el texto, para poder encolarlos.
+  // Solo interesa el id: la URL se reconstruye en forma canonica.
+  var YOUTUBE_ALL_RE =
+    /(?:youtube\.com\/(?:watch\?\S*?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/gi;
 
   // Pistas que se muestran en la vista previa antes de recortar.
   var TRACKS_PREVIEW = 30;
@@ -71,6 +77,21 @@
     playlist: null,
     seedUrl: null
   };
+
+  /** Enlaces de YouTube presentes en el texto, canonicos y sin repetidos. */
+  function parseUrls(text) {
+    var vistos = {};
+    var urls = [];
+    var re = new RegExp(YOUTUBE_ALL_RE.source, "gi");
+    var match;
+    while ((match = re.exec(String(text || ""))) !== null) {
+      var id = match[1];
+      if (vistos[id]) continue;
+      vistos[id] = true;
+      urls.push("https://www.youtube.com/watch?v=" + id);
+    }
+    return urls;
+  }
 
   function playlistIdOf(url) {
     var match = PLAYLIST_RE.exec(String(url || ""));
@@ -397,6 +418,14 @@
     var lista = state.playlist;
     var url = el.url.value.trim();
 
+    // Varios enlaces pegados: se descargan como cola.
+    var cola = parseUrls(url);
+    if (cola.length > 1) {
+      el.downloadBtn.textContent = "Descargar " + cola.length + " videos";
+      el.downloadBtn.disabled = false;
+      return;
+    }
+
     if (lista && lista.downloadable) {
       var total = Math.min(lista.count, lista.max_items);
       el.downloadBtn.textContent = "Descargar lista (" + total + ")";
@@ -436,6 +465,19 @@
 
     setHelpText(null);
     hideMessage();
+
+    // Con varios enlaces no hay una sola ficha que mostrar: se resume la cola.
+    var cola = parseUrls(url);
+    if (cola.length > 1) {
+      clearVideoInfo();
+      clearPlaylistInfo();
+      setHelpText(
+        cola.length + " enlaces detectados. Se descargaran uno tras otro."
+      );
+      updateDownloadButton();
+      return Promise.resolve(null);
+    }
+
     el.infoBtn.disabled = true;
     el.infoBtn.textContent = "Buscando...";
 
@@ -500,10 +542,12 @@
       return;
     }
 
-    var enLote = Boolean(state.playlist && state.playlist.downloadable);
+    var cola = parseUrls(url);
+    var enCola = cola.length > 1;
+    var enLote = !enCola && Boolean(state.playlist && state.playlist.downloadable);
     var videoUrl = targetVideoUrl();
 
-    if (!enLote && !videoUrl) {
+    if (!enCola && !enLote && !videoUrl) {
       showMessage(
         "error",
         "Pulsa \"Ver info\" para comprobar que contiene ese enlace antes de descargar."
@@ -525,9 +569,16 @@
     setHelpText(null);
     hideMessage();
     setBusy(true);
-    startProgress(enLote ? Math.min(lista.count, lista.max_items) : 0);
+    startProgress(
+      enCola ? cola.length : enLote ? Math.min(lista.count, lista.max_items) : 0
+    );
 
-    var peticion = enLote
+    var peticion = enCola
+      ? request("/download-batch", {
+          method: "POST",
+          body: { urls: cola, format: format }
+        }).then(resumenDeLote)
+      : enLote
       ? request("/download-playlist", {
           method: "POST",
           body: { url: url, format: format }
@@ -565,16 +616,16 @@
 
   /** Convierte el resumen del lote en un mensaje legible. */
   function resumenDeLote(data) {
+    var origen = data.playlist || data;
     var partes = [data.downloaded.length + " descargada(s)"];
     if (data.skipped.length) partes.push(data.skipped.length + " ya estaban");
     if (data.failed.length) partes.push(data.failed.length + " fallaron");
 
-    var texto =
-      '"' + data.playlist.title + '": ' + partes.join(", ") + ".";
+    var texto = '"' + origen.title + '": ' + partes.join(", ") + ".";
 
     if (data.truncated) {
       texto +=
-        " La lista tiene " + data.playlist.count + " pistas y el limite por" +
+        " La lista tiene " + origen.count + " pistas y el limite por" +
         " descarga es " + data.limit + ": vuelve a pulsar para continuar.";
     }
     if (data.failed.length) {
@@ -726,6 +777,7 @@
       setHelpText(null);
       clearVideoInfo();
       clearPlaylistInfo();
+      updateDownloadButton();
     });
 
     // Enter en el campo de URL consulta la informacion en vez de enviar.

@@ -19,6 +19,7 @@ frontend en HTML/CSS/JavaScript sin dependencias.
 - Descarga en MP3 (192 kbps por defecto) o MP4 (mejor calidad disponible).
 - Errores de yt-dlp traducidos a mensajes accionables en espanol.
 - Listas de reproduccion: vista previa del contenido y descarga en lote.
+- Cola de enlaces: pega varios de golpe y se descargan uno tras otro.
 - No vuelve a descargar lo que ya esta en la biblioteca.
 - Historial persistente reconciliado con los archivos reales del disco.
 - Vaciado del historial en un paso.
@@ -179,6 +180,7 @@ Todas las respuestas siguen el mismo contrato:
 | `POST` | `/api/download` | Descarga el video en MP3 o MP4 |
 | `POST` | `/api/playlist-info` | Contenido de una lista, sin descargar |
 | `POST` | `/api/download-playlist` | Descarga en lote las pistas de una lista |
+| `POST` | `/api/download-batch` | Descarga una cola de enlaces elegidos |
 | `GET` | `/api/history` | Historial de descargas disponibles |
 | `DELETE` | `/api/history` | Vacia el historial y borra los archivos |
 | `GET` | `/api/download-file/<filename>` | Envia el archivo al navegador |
@@ -232,6 +234,21 @@ Responde `201 Created` con la entrada del historial: `filename`, `title`,
 | `409` | El video ya esta descargado, o el archivo esta bloqueado por otro programa |
 | `500` | Error inesperado del servidor |
 | `502` | YouTube rechazo la peticion (video privado, borrado, con edad, sin red) |
+
+---
+
+## Cola de enlaces
+
+Pega varios enlaces en el mismo campo, separados por espacios o saltos de
+linea, y se descargan uno detras de otro. El boton indica cuantos ha detectado.
+Los repetidos se descartan y un fallo no aborta la cola.
+
+```bash
+curl -X POST http://localhost:5000/api/download-batch   -H "Content-Type: application/json"   -d '{"urls": ["https://youtu.be/AAAAAAAAAAA", "https://youtu.be/BBBBBBBBBBB"],
+       "format": "mp3"}'
+```
+
+El maximo por tanda es `PLAYLIST_MAX_ITEMS`.
 
 ---
 
