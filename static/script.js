@@ -68,7 +68,8 @@
     busy: false,
     progressTimer: null,
     ffmpeg: true,
-    playlist: null
+    playlist: null,
+    seedUrl: null
   };
 
   function playlistIdOf(url) {
@@ -197,7 +198,11 @@
     el.url.disabled = busy;
     el.infoBtn.disabled = busy;
     el.downloadBtn.disabled = busy;
-    el.downloadBtn.textContent = busy ? "Descargando..." : "Descargar";
+    if (busy) {
+      el.downloadBtn.textContent = "Descargando...";
+    } else {
+      updateDownloadButton();
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -336,11 +341,14 @@
     el.playlistTracks.appendChild(fragment);
 
     if (info.is_radio) {
-      el.playlistNote.textContent =
-        "Es una radio que YouTube genera automaticamente, no una lista publicada:" +
-        " cambia en cada sesion y no se descarga en bloque. Puedes descargar el" +
-        " video suelto quitando el resto del enlace.";
+      el.playlistNote.textContent = info.seed_video_id
+        ? "Es una radio que YouTube arma sola a partir de un video, no una lista" +
+          " publicada: cambia en cada sesion y no se descarga en bloque. Si puedes" +
+          " descargar el video que la origina, ya preparado abajo."
+        : "Es una radio que YouTube genera automaticamente, no una lista publicada:" +
+          " cambia en cada sesion y no se descarga en bloque.";
       show(el.playlistNote);
+      cargarVideoSemilla(info);
     } else if (info.count > info.max_items) {
       el.playlistNote.textContent =
         "Se descargaran las primeras " + info.max_items + " pistas. El limite se" +
@@ -354,23 +362,67 @@
     updateDownloadButton();
   }
 
+  /**
+   * Si la radio nace de un video concreto, se carga su ficha para que el
+   * usuario pueda descargarlo sin tener que editar la URL a mano.
+   */
+  function cargarVideoSemilla(info) {
+    if (!info.seed_video_id || isVideoUrl(el.url.value.trim())) return;
+
+    var url = "https://www.youtube.com/watch?v=" + info.seed_video_id;
+    request("/video-info", { method: "POST", body: { url: url } })
+      .then(function (video) {
+        state.seedUrl = url;
+        renderVideoInfo(video);
+        updateDownloadButton();
+      })
+      .catch(function () {
+        // Si el video de origen ya no existe, simplemente no se ofrece.
+        state.seedUrl = null;
+        updateDownloadButton();
+      });
+  }
+
   function clearPlaylistInfo() {
     state.playlist = null;
+    state.seedUrl = null;
     hide(el.playlistInfo);
     hide(el.playlistNote);
     el.playlistTracks.innerHTML = "";
     updateDownloadButton();
   }
 
-  /** El boton principal refleja si se va a bajar un video o una lista. */
+  /** El boton principal refleja exactamente que ocurrira al pulsarlo. */
   function updateDownloadButton() {
     var lista = state.playlist;
+    var url = el.url.value.trim();
+
     if (lista && lista.downloadable) {
       var total = Math.min(lista.count, lista.max_items);
       el.downloadBtn.textContent = "Descargar lista (" + total + ")";
-    } else {
-      el.downloadBtn.textContent = "Descargar";
+      el.downloadBtn.disabled = false;
+      return;
     }
+
+    // Con una radio, lo unico descargable es el video: el del enlace o el que
+    // la origina, cuyo id viene dentro del identificador de la lista.
+    if (lista && lista.is_radio) {
+      var hayVideo = isVideoUrl(url) || Boolean(state.seedUrl);
+      el.downloadBtn.textContent = hayVideo
+        ? "Descargar solo el video"
+        : "Esta lista no se puede descargar";
+      el.downloadBtn.disabled = !hayVideo;
+      return;
+    }
+
+    el.downloadBtn.textContent = "Descargar";
+    el.downloadBtn.disabled = false;
+  }
+
+  /** URL efectiva a descargar cuando no es un lote. */
+  function targetVideoUrl() {
+    var url = el.url.value.trim();
+    return isVideoUrl(url) ? url : state.seedUrl;
   }
 
   function loadVideoInfo() {
@@ -448,12 +500,13 @@
       return;
     }
 
-    if (!isVideoUrl(url) && !(state.playlist && state.playlist.downloadable)) {
+    var enLote = Boolean(state.playlist && state.playlist.downloadable);
+    var videoUrl = targetVideoUrl();
+
+    if (!enLote && !videoUrl) {
       showMessage(
         "error",
-        state.playlist && state.playlist.is_radio
-          ? "Esa lista es una radio generada por YouTube y no se descarga en bloque."
-          : "Pulsa \"Ver info\" para comprobar el contenido de la lista antes de descargar."
+        "Pulsa \"Ver info\" para comprobar que contiene ese enlace antes de descargar."
       );
       return;
     }
@@ -468,7 +521,6 @@
     }
 
     var lista = state.playlist;
-    var enLote = Boolean(lista && lista.downloadable);
 
     setHelpText(null);
     hideMessage();
@@ -482,7 +534,7 @@
         }).then(resumenDeLote)
       : request("/download", {
           method: "POST",
-          body: { url: url, format: format }
+          body: { url: videoUrl, format: format }
         }).then(function (entry) {
           return {
             tipo: "success",

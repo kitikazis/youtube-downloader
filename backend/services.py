@@ -137,6 +137,12 @@ class DownloadService:
     #: infinitas y su contenido no es reproducible, asi que no se descargan.
     RADIO_PREFIXES = ("RD", "UL", "LM")
 
+    #: Radios que arrancan de un video concreto: al quitar el prefijo queda su id.
+    RADIO_SEED_PREFIXES = ("RDAMVM", "RDMM", "RD")
+
+    #: Mixes sin video de origen (los arma YouTube por genero o por artista).
+    RADIO_SEEDLESS_PREFIXES = ("RDCLAK", "RDEM", "RDGMEM", "UL", "LM")
+
     HISTORY_FILENAME = ".history.json"
 
     def __init__(
@@ -580,6 +586,26 @@ class DownloadService:
             return False
         return playlist_id.upper().startswith(cls.RADIO_PREFIXES)
 
+    @classmethod
+    def radio_seed_video_id(cls, playlist_id: str | None) -> str | None:
+        """Deduce el video que origina una radio a partir del id de la lista.
+
+        `RDKAwfvKcEPlo` -> `KAwfvKcEPlo`. Devuelve None si no queda un id de
+        video valido (por ejemplo en los mixes `RDCLAK5uy_...`).
+        """
+        if not cls.is_radio_playlist(playlist_id):
+            return None
+        # Estos mixes no nacen de un video: cortarlos daria un id inventado.
+        if playlist_id.upper().startswith(cls.RADIO_SEEDLESS_PREFIXES):
+            return None
+        for prefix in cls.RADIO_SEED_PREFIXES:
+            if not playlist_id.upper().startswith(prefix):
+                continue
+            resto = playlist_id[len(prefix):]
+            if re.fullmatch(r"[A-Za-z0-9_-]{11}", resto):
+                return resto
+        return None
+
     def _playlist_url(self, playlist_id: str) -> str:
         return f"https://www.youtube.com/playlist?list={playlist_id}"
 
@@ -655,6 +681,7 @@ class DownloadService:
             "total_duration_formatted": self.format_duration(total_duration),
             "is_radio": is_radio,
             "downloadable": not is_radio,
+            "seed_video_id": self.radio_seed_video_id(playlist_id),
             "max_items": self.playlist_max_items,
             "entries": entries,
         }
