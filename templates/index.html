@@ -11,152 +11,131 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="container">
+  <div class="page">
 
-    <!-- ===================== HEADER ===================== -->
-    <header class="header">
-      <div class="header-content">
-        <h1 class="title">
-          <span class="title-icon">&#127925;</span>
-          YouTube Downloader
-        </h1>
-        <p class="subtitle">Descarga tu propio contenido en MP3 o MP4</p>
+    <header class="masthead">
+      <div class="masthead__title">
+        <h1 class="wordmark">YouTube<br><em>Downloader</em></h1>
+        <p class="tagline">Guarda tu propio contenido en MP3 o MP4</p>
       </div>
+      <p class="colophon">
+        <span>local</span>
+        <span>flask &middot; yt-dlp</span>
+      </p>
     </header>
 
-    <!-- ===================== MAIN CONTENT ===================== -->
-    <main class="main-content">
+    <main class="columns">
 
-      <!-- ---------- Card izquierda: descarga ---------- -->
-      <section class="card">
-        <h2 class="card-header">Descargar</h2>
+      <section class="panel">
+        <h2 class="rubric"><i>01</i> Descargar</h2>
 
         <form id="downloadForm" novalidate>
-          <div class="form-group">
-            <label for="urlInput">Enlace del video</label>
-            <div class="input-wrapper">
+          <div class="field">
+            <label class="field__label" for="urlInput">Enlace</label>
+            <div class="field__row">
               <input
                 type="url"
                 id="urlInput"
-                class="input-field"
-                placeholder="https://www.youtube.com/watch?v=..."
+                class="field__input"
+                placeholder="pega aqui el enlace"
                 autocomplete="off"
                 spellcheck="false"
                 required>
-              <button type="button" class="btn btn-info" id="infoBtn">Ver info</button>
+              <button type="button" class="link-btn" id="infoBtn">ver &rarr;</button>
             </div>
-            <p class="help-text" id="helpText">Admite videos, listas y varios enlaces pegados a la vez.</p>
+            <p class="field__note" id="helpText">Admite videos, listas y varios enlaces pegados a la vez.</p>
           </div>
 
-          <div class="video-info hidden" id="videoInfo">
-            <div class="info-item">
-              <strong>Titulo</strong>
-              <span id="videoTitle"></span>
-            </div>
-            <div class="info-item">
-              <strong>Autor</strong>
-              <span id="videoAuthor"></span>
-            </div>
-            <div class="info-item">
-              <strong>Duracion</strong>
-              <span id="videoDuration"></span>
-            </div>
+          <article class="record hidden" id="videoInfo">
             <img id="videoThumb" src="" alt="" loading="lazy" decoding="async">
-          </div>
+            <h3 class="record__title" id="videoTitle"></h3>
+            <dl class="record__meta">
+              <div><dt>Autor</dt><dd id="videoAuthor"></dd></div>
+              <div><dt>Duracion</dt><dd id="videoDuration"></dd></div>
+            </dl>
+          </article>
 
-          <div class="playlist-info hidden" id="playlistInfo">
-            <div class="info-item">
-              <strong>Lista</strong>
-              <span id="playlistTitle"></span>
-            </div>
-            <div class="info-item">
-              <strong>Pistas</strong>
-              <span id="playlistCount"></span>
-            </div>
-            <div class="info-item">
-              <strong>Artistas</strong>
-              <span id="playlistAuthors"></span>
-            </div>
-            <div class="info-item">
-              <strong>Duracion total</strong>
-              <span id="playlistDuration"></span>
-            </div>
-            <ul class="playlist-tracks" id="playlistTracks"></ul>
-            <p class="playlist-note hidden" id="playlistNote"></p>
-          </div>
+          <article class="record hidden" id="playlistInfo">
+            <h3 class="record__title" id="playlistTitle"></h3>
+            <dl class="record__meta">
+              <div><dt>Pistas</dt><dd id="playlistCount"></dd></div>
+              <div><dt>Artistas</dt><dd id="playlistAuthors"></dd></div>
+              <div><dt>Duracion</dt><dd id="playlistDuration"></dd></div>
+            </dl>
+            <ol class="tracks" id="playlistTracks"></ol>
+            <p class="caveat hidden" id="playlistNote"></p>
+          </article>
 
-          <div class="form-group">
-            <label>Formato</label>
-            <div class="radio-group">
-              <label class="radio-label">
-                <input type="radio" class="radio-input" name="format" value="mp3" checked>
-                <span class="radio-custom"></span>
-                MP3 &mdash; Solo audio
+          <fieldset class="field">
+            <legend class="field__label">Formato</legend>
+            <div class="choices">
+              <label class="choice">
+                <input type="radio" name="format" value="mp3" checked>
+                <i>01</i>
+                <b>MP3</b>
+                <span>solo audio</span>
               </label>
-              <label class="radio-label">
-                <input type="radio" class="radio-input" name="format" value="mp4">
-                <span class="radio-custom"></span>
-                MP4 &mdash; Video con audio
+              <label class="choice">
+                <input type="radio" name="format" value="mp4">
+                <i>02</i>
+                <b>MP4</b>
+                <span>video con audio</span>
               </label>
             </div>
-          </div>
+          </fieldset>
 
-          <button type="submit" class="btn btn-primary btn-large" id="downloadBtn">Descargar</button>
+          <button type="submit" class="action" id="downloadBtn">Descargar</button>
         </form>
 
-        <div class="progress-section hidden" id="progressSection">
-          <div class="progress-header">
+        <div class="progress hidden" id="progressSection">
+          <p class="progress__head">
             <span id="progressLabel">Preparando</span>
-            <span id="progressValue">0%</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" id="progressFill"></div>
-          </div>
-          <div class="progress-status" id="progressStatus">Iniciando la descarga...</div>
+            <b id="progressValue">0%</b>
+          </p>
+          <div class="progress__rule"><span id="progressFill"></span></div>
+          <p class="progress__note" id="progressStatus">Iniciando la descarga</p>
         </div>
 
         <div class="message hidden" id="message" role="status" aria-live="polite">
           <span id="messageIcon"></span>
-          <div id="messageText"></div>
+          <p id="messageText"></p>
         </div>
       </section>
 
-      <!-- ---------- Card derecha: historial ---------- -->
-      <section class="card">
-        <h2 class="card-header">
-          Historial
-          <button type="button" class="btn btn-secondary btn-sm" id="clearHistoryBtn">Vaciar</button>
+      <section class="panel panel--aside">
+        <h2 class="rubric">
+          <i>02</i> Historial
+          <button type="button" class="link-btn" id="clearHistoryBtn">vaciar</button>
         </h2>
-        <div class="history-list" id="historyList"></div>
-        <p class="empty-state" id="historyEmpty">Todavia no hay descargas</p>
+
+        <ol class="ledger" id="historyList"></ol>
+        <p class="blank" id="historyEmpty">Sin descargas todavia.</p>
       </section>
 
     </main>
 
-    <!-- ===================== FOOTER ===================== -->
-    <footer class="footer">
-      <p>Hecho con <span class="heart">&#10084;</span> para uso personal</p>
-      <p class="small-text">
-        Aviso legal: usa esta herramienta unicamente con contenido propio o con
-        material cuya licencia permita la descarga. Descargar obras protegidas por
-        derechos de autor sin autorizacion puede infringir la ley y los Terminos
-        de Servicio de YouTube.
+    <footer class="endnote">
+      <p class="endnote__legal">
+        Usa esta herramienta unicamente con contenido propio o con material cuya
+        licencia permita la descarga. Descargar obras protegidas por derechos de
+        autor sin autorizacion puede infringir la ley y los Terminos de Servicio
+        de YouTube.
       </p>
     </footer>
 
   </div>
 
   <template id="historyItemTemplate">
-    <div class="history-item">
-      <div class="item-info">
-        <strong data-role="filename"></strong>
-        <span data-role="meta"></span>
+    <li class="history-item">
+      <div class="history-item__body">
+        <p class="history-item__name" data-role="filename"></p>
+        <p class="history-item__meta" data-role="meta"></p>
       </div>
-      <div class="item-actions">
-        <a class="btn btn-success btn-sm" data-role="download" download>Descargar</a>
-        <button type="button" class="btn btn-secondary btn-sm" data-role="delete">Eliminar</button>
+      <div class="history-item__tools">
+        <a class="link-btn" data-role="download" download>guardar</a>
+        <button type="button" class="link-btn link-btn--warn" data-role="delete">borrar</button>
       </div>
-    </div>
+    </li>
   </template>
 
   <script src="{{ url_for('static', filename='script.js') }}" defer></script>

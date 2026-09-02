@@ -479,7 +479,7 @@
     }
 
     el.infoBtn.disabled = true;
-    el.infoBtn.textContent = "Buscando...";
+    el.infoBtn.textContent = "buscando";
 
     var tareas = [];
 
@@ -517,7 +517,7 @@
       })
       .then(function () {
         el.infoBtn.disabled = false;
-        el.infoBtn.textContent = "Ver info";
+        el.infoBtn.textContent = "ver →";
       });
   }
 
@@ -550,7 +550,7 @@
     if (!enCola && !enLote && !videoUrl) {
       showMessage(
         "error",
-        "Pulsa \"Ver info\" para comprobar que contiene ese enlace antes de descargar."
+        "Pulsa \"ver\" para comprobar que contiene ese enlace antes de descargar."
       );
       return;
     }
