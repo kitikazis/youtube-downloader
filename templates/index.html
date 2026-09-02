@@ -64,6 +64,27 @@
             <img id="videoThumb" src="" alt="" loading="lazy" decoding="async">
           </div>
 
+          <div class="playlist-info hidden" id="playlistInfo">
+            <div class="info-item">
+              <strong>Lista</strong>
+              <span id="playlistTitle"></span>
+            </div>
+            <div class="info-item">
+              <strong>Pistas</strong>
+              <span id="playlistCount"></span>
+            </div>
+            <div class="info-item">
+              <strong>Artistas</strong>
+              <span id="playlistAuthors"></span>
+            </div>
+            <div class="info-item">
+              <strong>Duracion total</strong>
+              <span id="playlistDuration"></span>
+            </div>
+            <ul class="playlist-tracks" id="playlistTracks"></ul>
+            <p class="playlist-note hidden" id="playlistNote"></p>
+          </div>
+
           <div class="form-group">
             <label>Formato</label>
             <div class="radio-group">
@@ -102,7 +123,10 @@
 
       <!-- ---------- Card derecha: historial ---------- -->
       <section class="card">
-        <h2 class="card-header">Historial</h2>
+        <h2 class="card-header">
+          Historial
+          <button type="button" class="btn btn-secondary btn-sm" id="clearHistoryBtn">Vaciar</button>
+        </h2>
         <div class="history-list" id="historyList"></div>
         <p class="empty-state" id="historyEmpty">Todavia no hay descargas</p>
       </section>

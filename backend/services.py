@@ -68,6 +68,13 @@ class FileInUseError(ServiceError):
     default_message = "El archivo esta en uso por otro programa"
 
 
+class DuplicateDownloadError(ServiceError):
+    """El video ya se descargo antes y el archivo sigue en la biblioteca."""
+
+    status_code = 409
+    default_message = "Ese video ya esta descargado"
+
+
 class DownloadError(ServiceError):
     """Fallo al obtener informacion o al descargar desde YouTube."""
 
@@ -122,6 +129,14 @@ class DownloadService:
         *(f"LPT{i}" for i in range(1, 10)),
     }
 
+    #: Extrae el identificador de lista (`list=`) de una URL de YouTube.
+    PLAYLIST_ID_RE = re.compile(r"[?&]list=([A-Za-z0-9_-]+)", re.IGNORECASE)
+
+    #: Prefijos de listas generadas por el algoritmo de YouTube (radios y mixes).
+    #: No son listas publicadas: cambian por usuario y sesion, son potencialmente
+    #: infinitas y su contenido no es reproducible, asi que no se descargan.
+    RADIO_PREFIXES = ("RD", "UL", "LM")
+
     HISTORY_FILENAME = ".history.json"
 
     def __init__(
@@ -134,6 +149,8 @@ class DownloadService:
         history_limit: int = 100,
         max_filename_length: int = 120,
         socket_timeout: int = 30,
+        playlist_max_items: int = 50,
+        playlist_preview_items: int = 200,
     ) -> None:
         self.download_folder = Path(download_folder).expanduser().resolve()
         self.download_folder.mkdir(parents=True, exist_ok=True)
@@ -143,6 +160,8 @@ class DownloadService:
         self.history_limit = max(1, int(history_limit))
         self.max_filename_length = max(16, int(max_filename_length))
         self.socket_timeout = max(5, int(socket_timeout))
+        self.playlist_max_items = max(1, int(playlist_max_items))
+        self.playlist_preview_items = max(1, int(playlist_preview_items))
         self._history_path = self.download_folder / self.HISTORY_FILENAME
         self._lock = threading.RLock()
 
@@ -321,6 +340,8 @@ class DownloadService:
             ("live event will begin", "La transmision en vivo aun no ha comenzado."),
             ("incomplete data received", "YouTube devolvio datos incompletos. Reintenta."),
             ("requested format is not available", "YouTube no ofrece un formato descargable para este video."),
+            ("playlist type is unviewable", "Esa lista no es consultable: YouTube solo la expone desde el video que la origina."),
+            ("does not exist", "La lista no existe o es privada."),
         ]
         for needle, friendly in table:
             if needle in lowered:
@@ -356,10 +377,42 @@ class DownloadService:
             "description": (info.get("description") or "")[:280],
         }
 
-    def download(self, url: str, format_type: str = "mp3") -> dict[str, Any]:
-        """Descarga el video en el formato pedido y registra el historial."""
+    def find_in_library(self, video_id: str, fmt_key: str) -> dict[str, Any] | None:
+        """Busca un video ya descargado en ese formato cuyo archivo siga en disco."""
+        if not video_id:
+            return None
+        with self._lock:
+            for entry in self._read_history():
+                if entry.get("format") != fmt_key:
+                    continue
+                # Las entradas anteriores a esta version no guardan video_id:
+                # se deduce de la URL de origen para no perder la deteccion.
+                conocido = entry.get("video_id") or self.extract_video_id(
+                    entry.get("source_url") or ""
+                )
+                if conocido != video_id:
+                    continue
+                if (self.download_folder / entry.get("filename", "")).is_file():
+                    return entry
+        return None
+
+    def download(
+        self, url: str, format_type: str = "mp3", *, allow_duplicate: bool = False
+    ) -> dict[str, Any]:
+        """Descarga el video en el formato pedido y registra el historial.
+
+        Si el video ya esta en la biblioteca en ese formato lanza
+        `DuplicateDownloadError`, salvo que se pida lo contrario.
+        """
         canonical_url = self.validate_url(url)
         fmt = self.validate_format(format_type)
+
+        if not allow_duplicate:
+            existente = self.find_in_library(self.extract_video_id(url), fmt.key)
+            if existente:
+                raise DuplicateDownloadError(
+                    f"'{existente['title']}' ya esta descargado en {fmt.key.upper()}."
+                )
 
         if fmt.requires_ffmpeg and not self.has_ffmpeg():
             raise ValidationError(
@@ -409,6 +462,7 @@ class DownloadService:
         size = final_path.stat().st_size
         entry = {
             "filename": final_path.name,
+            "video_id": metadata["id"],
             "title": metadata["title"],
             "author": metadata["author"],
             "thumbnail": metadata["thumbnail"],
@@ -506,6 +560,175 @@ class DownloadService:
         )
 
     # ------------------------------------------------------------------
+    # Listas de reproduccion
+    # ------------------------------------------------------------------
+    def extract_playlist_id(self, url: str) -> str | None:
+        """Devuelve el identificador de la lista (`list=`), si la URL trae una."""
+        if not url or not isinstance(url, str):
+            return None
+        match = self.PLAYLIST_ID_RE.search(url.strip())
+        return match.group(1) if match else None
+
+    def is_playlist_url(self, url: str) -> bool:
+        """True si la URL apunta a una lista de reproduccion."""
+        return self.extract_playlist_id(url) is not None
+
+    @classmethod
+    def is_radio_playlist(cls, playlist_id: str | None) -> bool:
+        """True si la lista la genera el algoritmo de YouTube (radio o mix)."""
+        if not playlist_id:
+            return False
+        return playlist_id.upper().startswith(cls.RADIO_PREFIXES)
+
+    def _playlist_url(self, playlist_id: str) -> str:
+        return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+    def get_playlist_info(self, url: str) -> dict[str, Any]:
+        """Devuelve el contenido de una lista sin descargar nada.
+
+        Usa extraccion plana: pide a YouTube solo el indice de la lista, no los
+        metadatos completos de cada video, que serian cientos de peticiones.
+        """
+        playlist_id = self.extract_playlist_id(url)
+        if not playlist_id:
+            raise ValidationError("La URL no contiene ninguna lista de reproduccion.")
+
+        # Las radios solo son consultables desde la URL del video que las origina:
+        # como lista suelta YouTube responde "playlist type is unviewable".
+        if self.is_radio_playlist(playlist_id):
+            target = url.strip()
+        else:
+            target = self._playlist_url(playlist_id)
+
+        logger.info("Consultando la lista %s", playlist_id)
+        options = {
+            **self._base_options(),
+            "noplaylist": False,
+            "extract_flat": "in_playlist",
+            "skip_download": True,
+            "playlistend": self.playlist_preview_items,
+        }
+
+        self._require_yt_dlp()
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(target, download=False)
+        except YtDlpDownloadError as exc:
+            raise DownloadError(self._humanize_yt_dlp_error(str(exc))) from exc
+        except Exception as exc:  # pragma: no cover - fallo de red/IO
+            logger.exception("Fallo al leer la lista %s", playlist_id)
+            raise DownloadError(f"No se pudo leer la lista: {exc}") from exc
+
+        if not info:
+            raise DownloadError("YouTube no devolvio informacion de esa lista")
+
+        entries = []
+        total_duration = 0
+        for position, entry in enumerate(info.get("entries") or [], start=1):
+            if not entry:
+                continue
+            duration = int(entry.get("duration") or 0)
+            total_duration += duration
+            entries.append(
+                {
+                    "position": position,
+                    "id": entry.get("id"),
+                    "title": entry.get("title") or "Sin titulo",
+                    "author": entry.get("uploader") or entry.get("channel") or "Desconocido",
+                    "duration": duration,
+                    "duration_formatted": self.format_duration(duration),
+                    "url": entry.get("url")
+                    or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                }
+            )
+
+        is_radio = self.is_radio_playlist(playlist_id)
+        authors = {entry["author"] for entry in entries}
+        return {
+            "id": playlist_id,
+            "title": info.get("title") or "Lista sin titulo",
+            "uploader": info.get("uploader") or info.get("channel"),
+            "url": self._playlist_url(playlist_id),
+            "count": len(entries),
+            "authors": len(authors),
+            "total_duration": total_duration,
+            "total_duration_formatted": self.format_duration(total_duration),
+            "is_radio": is_radio,
+            "downloadable": not is_radio,
+            "max_items": self.playlist_max_items,
+            "entries": entries,
+        }
+
+    def download_playlist(
+        self, url: str, format_type: str = "mp3", limit: int | None = None
+    ) -> dict[str, Any]:
+        """Descarga las pistas de una lista, una a una, y resume el resultado.
+
+        Un fallo en una pista no aborta el lote: se registra y se sigue con la
+        siguiente. Las pistas ya descargadas se omiten.
+        """
+        playlist_id = self.extract_playlist_id(url)
+        if not playlist_id:
+            raise ValidationError("La URL no contiene ninguna lista de reproduccion.")
+
+        if self.is_radio_playlist(playlist_id):
+            raise ValidationError(
+                "Ese enlace no es una lista publicada, sino una radio que genera "
+                "YouTube automaticamente: cambia en cada sesion y no tiene un "
+                "contenido fijo. Usa el enlace de una lista propia (list=PL...) o "
+                "de un album de YouTube Music (list=OLAK5uy_...), o descarga el "
+                "video suelto."
+            )
+
+        fmt = self.validate_format(format_type)
+        if fmt.requires_ffmpeg and not self.has_ffmpeg():
+            raise ValidationError(
+                "ffmpeg es necesario para generar MP3. Instalalo y vuelve a intentar "
+                "(o define FFMPEG_LOCATION en el .env)."
+            )
+
+        info = self.get_playlist_info(url)
+        tope = min(int(limit or self.playlist_max_items), self.playlist_max_items)
+        pendientes = info["entries"][:tope]
+
+        if not pendientes:
+            raise DownloadError("La lista no contiene pistas descargables.")
+
+        logger.info(
+            "Descargando %d de %d pistas de '%s' como %s",
+            len(pendientes), info["count"], info["title"], fmt.key,
+        )
+
+        descargadas: list[dict[str, Any]] = []
+        omitidas: list[dict[str, Any]] = []
+        fallidas: list[dict[str, Any]] = []
+
+        for entry in pendientes:
+            etiqueta = {"position": entry["position"], "title": entry["title"]}
+            try:
+                descargadas.append(self.download(entry["url"], fmt.key))
+            except DuplicateDownloadError:
+                omitidas.append({**etiqueta, "reason": "Ya estaba descargada"})
+            except ServiceError as exc:
+                logger.warning("Pista %s fallo: %s", entry["position"], exc.message)
+                fallidas.append({**etiqueta, "reason": exc.message})
+
+        return {
+            "playlist": {
+                "id": info["id"],
+                "title": info["title"],
+                "count": info["count"],
+            },
+            "format": fmt.key,
+            "requested": len(pendientes),
+            "downloaded": descargadas,
+            "skipped": omitidas,
+            "failed": fallidas,
+            "truncated": info["count"] > tope,
+            "limit": tope,
+        }
+
+    # ------------------------------------------------------------------
     # Historial y biblioteca
     # ------------------------------------------------------------------
     def get_history(self) -> list[dict[str, Any]]:
@@ -591,6 +814,32 @@ class DownloadService:
                 time.sleep(delay)
             except OSError as exc:
                 raise ServiceError(f"No se pudo eliminar el archivo: {exc}") from exc
+
+    def clear_history(self, delete_files: bool = True) -> dict[str, Any]:
+        """Vacia el historial completo.
+
+        `get_history()` reconcilia el indice con el disco, asi que borrar solo
+        el JSON no serviria de nada: los archivos volverian a aparecer en la
+        siguiente consulta. Por eso, por defecto, tambien se borran.
+        """
+        borrados: list[str] = []
+        fallidos: list[dict[str, str]] = []
+
+        with self._lock:
+            if delete_files:
+                for path in list(self._library_files()):
+                    try:
+                        self._unlink_locked_file(path)
+                        borrados.append(path.name)
+                    except ServiceError as exc:
+                        fallidos.append({"filename": path.name, "reason": exc.message})
+            self._write_history([])
+
+        logger.info(
+            "Historial vaciado: %d archivo(s) eliminado(s), %d fallo(s)",
+            len(borrados), len(fallidos),
+        )
+        return {"deleted": borrados, "failed": fallidos, "count": len(borrados)}
 
     def _library_files(self) -> Iterable[Path]:
         extensions = {f".{fmt.extension}" for fmt in FORMATS.values()}

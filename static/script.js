@@ -21,7 +21,13 @@
     "i"
   );
 
-  var HELP_DEFAULT = "Admite enlaces de youtube.com, youtu.be y Shorts.";
+  var HELP_DEFAULT = "Admite videos y listas de reproduccion de YouTube.";
+
+  // Identificador de lista dentro de la URL (?list=...).
+  var PLAYLIST_RE = /[?&]list=([A-Za-z0-9_-]+)/i;
+
+  // Pistas que se muestran en la vista previa antes de recortar.
+  var TRACKS_PREVIEW = 30;
 
   /* ------------------------------------------------------------------ */
   /* Referencias al DOM                                                  */
@@ -37,6 +43,14 @@
     videoAuthor: document.getElementById("videoAuthor"),
     videoDuration: document.getElementById("videoDuration"),
     videoThumb: document.getElementById("videoThumb"),
+    playlistInfo: document.getElementById("playlistInfo"),
+    playlistTitle: document.getElementById("playlistTitle"),
+    playlistCount: document.getElementById("playlistCount"),
+    playlistAuthors: document.getElementById("playlistAuthors"),
+    playlistDuration: document.getElementById("playlistDuration"),
+    playlistTracks: document.getElementById("playlistTracks"),
+    playlistNote: document.getElementById("playlistNote"),
+    clearHistoryBtn: document.getElementById("clearHistoryBtn"),
     progressSection: document.getElementById("progressSection"),
     progressLabel: document.getElementById("progressLabel"),
     progressValue: document.getElementById("progressValue"),
@@ -53,8 +67,14 @@
   var state = {
     busy: false,
     progressTimer: null,
-    ffmpeg: true
+    ffmpeg: true,
+    playlist: null
   };
+
+  function playlistIdOf(url) {
+    var match = PLAYLIST_RE.exec(String(url || ""));
+    return match ? match[1] : null;
+  }
 
   /* ------------------------------------------------------------------ */
   /* Utilidades de formato                                               */
@@ -97,8 +117,13 @@
     });
   }
 
-  function isValidUrl(value) {
+  function isVideoUrl(value) {
     return YOUTUBE_RE.test(String(value || "").trim());
+  }
+
+  function isValidUrl(value) {
+    var url = String(value || "").trim();
+    return isVideoUrl(url) || Boolean(playlistIdOf(url));
   }
 
   function show(node) {
@@ -200,18 +225,27 @@
     }
   }
 
-  function startProgress() {
+  function startProgress(tracks) {
     stopProgress();
     show(el.progressSection);
     paintProgress(0, PROGRESS_PHASES[0]);
 
+    // Un lote tarda ~N veces mas que una pista suelta: la estimacion se frena
+    // proporcionalmente para no plantarse en el 92 % desde el primer minuto.
+    var lote = tracks > 1 ? tracks : 1;
+    var freno = 22 * lote;
+    var etiqueta = tracks > 1 ? " (" + tracks + " pistas)" : "";
+
     var percent = 0;
     state.progressTimer = window.setInterval(function () {
       // Avance decreciente: nunca alcanza el 100 % por su cuenta.
-      percent += Math.max(0.4, (92 - percent) / 22);
+      percent += Math.max(0.4 / lote, (92 - percent) / freno);
       var phase = PROGRESS_PHASES.find(function (item) {
         return percent < item.until;
       });
+      if (phase && etiqueta) {
+        phase = { label: phase.label, status: phase.status + etiqueta };
+      }
       paintProgress(percent, phase);
     }, 320);
   }
@@ -265,11 +299,85 @@
     el.videoThumb.removeAttribute("src");
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Informacion de la lista                                             */
+  /* ------------------------------------------------------------------ */
+  function renderPlaylistInfo(info) {
+    state.playlist = info;
+
+    el.playlistTitle.textContent = info.title;
+    el.playlistCount.textContent = String(info.count);
+    el.playlistAuthors.textContent = String(info.authors);
+    el.playlistDuration.textContent = info.total_duration_formatted;
+
+    el.playlistTracks.innerHTML = "";
+    var fragment = document.createDocumentFragment();
+    info.entries.slice(0, TRACKS_PREVIEW).forEach(function (track) {
+      var li = document.createElement("li");
+      var pos = document.createElement("span");
+      pos.textContent = track.position + ".";
+      var title = document.createElement("span");
+      title.textContent = track.title;
+      title.title = track.title;
+      var dur = document.createElement("span");
+      dur.textContent = track.duration_formatted;
+      li.append(pos, title, dur);
+      fragment.appendChild(li);
+    });
+    if (info.count > TRACKS_PREVIEW) {
+      var li = document.createElement("li");
+      var resto = document.createElement("span");
+      resto.textContent = "";
+      var texto = document.createElement("span");
+      texto.textContent = "y " + (info.count - TRACKS_PREVIEW) + " pistas mas";
+      li.append(resto, texto);
+      fragment.appendChild(li);
+    }
+    el.playlistTracks.appendChild(fragment);
+
+    if (info.is_radio) {
+      el.playlistNote.textContent =
+        "Es una radio que YouTube genera automaticamente, no una lista publicada:" +
+        " cambia en cada sesion y no se descarga en bloque. Puedes descargar el" +
+        " video suelto quitando el resto del enlace.";
+      show(el.playlistNote);
+    } else if (info.count > info.max_items) {
+      el.playlistNote.textContent =
+        "Se descargaran las primeras " + info.max_items + " pistas. El limite se" +
+        " ajusta con PLAYLIST_MAX_ITEMS en el .env.";
+      show(el.playlistNote);
+    } else {
+      hide(el.playlistNote);
+    }
+
+    show(el.playlistInfo);
+    updateDownloadButton();
+  }
+
+  function clearPlaylistInfo() {
+    state.playlist = null;
+    hide(el.playlistInfo);
+    hide(el.playlistNote);
+    el.playlistTracks.innerHTML = "";
+    updateDownloadButton();
+  }
+
+  /** El boton principal refleja si se va a bajar un video o una lista. */
+  function updateDownloadButton() {
+    var lista = state.playlist;
+    if (lista && lista.downloadable) {
+      var total = Math.min(lista.count, lista.max_items);
+      el.downloadBtn.textContent = "Descargar lista (" + total + ")";
+    } else {
+      el.downloadBtn.textContent = "Descargar";
+    }
+  }
+
   function loadVideoInfo() {
     var url = el.url.value.trim();
 
     if (!isValidUrl(url)) {
-      setHelpText("Introduce un enlace valido de YouTube.");
+      setHelpText("Introduce un enlace valido de YouTube (video o lista).");
       el.url.focus();
       return Promise.resolve(null);
     }
@@ -279,20 +387,43 @@
     el.infoBtn.disabled = true;
     el.infoBtn.textContent = "Buscando...";
 
-    return request("/video-info", { method: "POST", body: { url: url } })
-      .then(function (info) {
-        renderVideoInfo(info);
-        return info;
-      })
+    var tareas = [];
+
+    // Un enlace puede traer video y lista a la vez: se consultan los dos.
+    tareas.push(
+      isVideoUrl(url)
+        ? request("/video-info", { method: "POST", body: { url: url } })
+            .then(renderVideoInfo)
+            .catch(function (error) {
+              clearVideoInfo();
+              throw error;
+            })
+        : Promise.resolve(clearVideoInfo())
+    );
+
+    tareas.push(
+      playlistIdOf(url)
+        ? request("/playlist-info", { method: "POST", body: { url: url } })
+            .then(renderPlaylistInfo)
+            .catch(function (error) {
+              clearPlaylistInfo();
+              // Una lista ilegible no impide descargar el video suelto.
+              if (isVideoUrl(url)) {
+                showMessage("error", "No se pudo leer la lista: " + error.message);
+                return null;
+              }
+              throw error;
+            })
+        : Promise.resolve(clearPlaylistInfo())
+    );
+
+    return Promise.all(tareas)
       .catch(function (error) {
-        clearVideoInfo();
         showMessage("error", error.message);
-        return null;
       })
-      .then(function (info) {
+      .then(function () {
         el.infoBtn.disabled = false;
         el.infoBtn.textContent = "Ver info";
-        return info;
       });
   }
 
@@ -317,6 +448,16 @@
       return;
     }
 
+    if (!isVideoUrl(url) && !(state.playlist && state.playlist.downloadable)) {
+      showMessage(
+        "error",
+        state.playlist && state.playlist.is_radio
+          ? "Esa lista es una radio generada por YouTube y no se descarga en bloque."
+          : "Pulsa \"Ver info\" para comprobar el contenido de la lista antes de descargar."
+      );
+      return;
+    }
+
     if (format === "mp3" && !state.ffmpeg) {
       showMessage(
         "error",
@@ -326,23 +467,39 @@
       return;
     }
 
+    var lista = state.playlist;
+    var enLote = Boolean(lista && lista.downloadable);
+
     setHelpText(null);
     hideMessage();
     setBusy(true);
-    startProgress();
+    startProgress(enLote ? Math.min(lista.count, lista.max_items) : 0);
 
-    request("/download", { method: "POST", body: { url: url, format: format } })
-      .then(function (entry) {
+    var peticion = enLote
+      ? request("/download-playlist", {
+          method: "POST",
+          body: { url: url, format: format }
+        }).then(resumenDeLote)
+      : request("/download", {
+          method: "POST",
+          body: { url: url, format: format }
+        }).then(function (entry) {
+          return {
+            tipo: "success",
+            texto:
+              entry.title +
+              " (" +
+              entry.format.toUpperCase() +
+              ", " +
+              entry.size_formatted +
+              ") se descargo correctamente."
+          };
+        });
+
+    peticion
+      .then(function (resultado) {
         finishProgress(true);
-        showMessage(
-          "success",
-          entry.title +
-            " (" +
-            entry.format.toUpperCase() +
-            ", " +
-            entry.size_formatted +
-            ") se descargo correctamente."
-        );
+        showMessage(resultado.tipo, resultado.texto);
         return loadHistory();
       })
       .catch(function (error) {
@@ -351,6 +508,59 @@
       })
       .then(function () {
         setBusy(false);
+      });
+  }
+
+  /** Convierte el resumen del lote en un mensaje legible. */
+  function resumenDeLote(data) {
+    var partes = [data.downloaded.length + " descargada(s)"];
+    if (data.skipped.length) partes.push(data.skipped.length + " ya estaban");
+    if (data.failed.length) partes.push(data.failed.length + " fallaron");
+
+    var texto =
+      '"' + data.playlist.title + '": ' + partes.join(", ") + ".";
+
+    if (data.truncated) {
+      texto +=
+        " La lista tiene " + data.playlist.count + " pistas y el limite por" +
+        " descarga es " + data.limit + ": vuelve a pulsar para continuar.";
+    }
+    if (data.failed.length) {
+      texto += " Primer fallo: " + data.failed[0].reason;
+    }
+
+    return {
+      tipo: data.downloaded.length ? "success" : "error",
+      texto: texto
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Vaciar el historial                                                 */
+  /* ------------------------------------------------------------------ */
+  function clearHistory() {
+    var confirmado = window.confirm(
+      "Se eliminaran del disco TODOS los archivos descargados. " +
+        "Esta accion no se puede deshacer."
+    );
+    if (!confirmado) return;
+
+    el.clearHistoryBtn.disabled = true;
+    request("/history", { method: "DELETE" })
+      .then(function (data) {
+        var texto = data.count + " archivo(s) eliminado(s).";
+        if (data.failed.length) {
+          texto += " " + data.failed.length + " no se pudieron borrar: " +
+            data.failed[0].reason;
+        }
+        showMessage(data.failed.length ? "error" : "success", texto);
+        return loadHistory();
+      })
+      .catch(function (error) {
+        showMessage("error", error.message);
+      })
+      .then(function () {
+        el.clearHistoryBtn.disabled = false;
       });
   }
 
@@ -457,11 +667,13 @@
     el.form.addEventListener("submit", handleSubmit);
     el.infoBtn.addEventListener("click", loadVideoInfo);
     el.historyList.addEventListener("click", handleHistoryClick);
+    el.clearHistoryBtn.addEventListener("click", clearHistory);
 
     // Al cambiar la URL, la informacion mostrada deja de ser valida.
     el.url.addEventListener("input", function () {
       setHelpText(null);
       clearVideoInfo();
+      clearPlaylistInfo();
     });
 
     // Enter en el campo de URL consulta la informacion en vez de enviar.

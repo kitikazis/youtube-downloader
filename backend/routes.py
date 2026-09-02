@@ -140,11 +140,41 @@ def download() -> tuple[Response, int]:
     return ok(entry, status=201)
 
 
+@api_bp.post("/playlist-info")
+def playlist_info() -> tuple[Response, int]:
+    """Devuelve el contenido de una lista de reproduccion sin descargar nada."""
+    body = json_body()
+    url = required_string(body, "url")
+    return ok(get_service().get_playlist_info(url))
+
+
+@api_bp.post("/download-playlist")
+def download_playlist() -> tuple[Response, int]:
+    """Descarga en lote las pistas de una lista de reproduccion."""
+    body = json_body()
+    url = required_string(body, "url")
+    format_type = (body.get("format") or "mp3").strip().lower()
+
+    limit = body.get("limit")
+    if limit is not None:
+        if not isinstance(limit, int) or limit < 1:
+            raise ValidationError("El campo 'limit' debe ser un entero positivo")
+
+    result = get_service().download_playlist(url, format_type, limit)
+    return ok(result, status=201)
+
+
 @api_bp.get("/history")
 def history() -> tuple[Response, int]:
     """Lista las descargas disponibles en la carpeta local."""
     items = get_service().get_history()
     return ok({"items": items, "count": len(items)})
+
+
+@api_bp.delete("/history")
+def clear_history() -> tuple[Response, int]:
+    """Vacia el historial y borra los archivos de la carpeta de descargas."""
+    return ok(get_service().clear_history(delete_files=True))
 
 
 @api_bp.get("/download-file/<path:filename>")

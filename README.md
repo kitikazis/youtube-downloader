@@ -18,7 +18,10 @@ frontend en HTML/CSS/JavaScript sin dependencias.
 - Vista previa del video: titulo, autor, duracion, miniatura, visitas y fecha.
 - Descarga en MP3 (192 kbps por defecto) o MP4 (mejor calidad disponible).
 - Errores de yt-dlp traducidos a mensajes accionables en espanol.
+- Listas de reproduccion: vista previa del contenido y descarga en lote.
+- No vuelve a descargar lo que ya esta en la biblioteca.
 - Historial persistente reconciliado con los archivos reales del disco.
+- Vaciado del historial en un paso.
 - Descarga y borrado de archivos desde la interfaz.
 - Tema oscuro responsive (movil, tablet y escritorio).
 - API REST con contrato uniforme, CORS, logs y manejo de errores tipado.
@@ -174,7 +177,10 @@ Todas las respuestas siguen el mismo contrato:
 | `GET` / `POST` | `/api/health` | Estado del servidor y de sus dependencias |
 | `POST` | `/api/video-info` | Metadatos del video sin descargarlo |
 | `POST` | `/api/download` | Descarga el video en MP3 o MP4 |
+| `POST` | `/api/playlist-info` | Contenido de una lista, sin descargar |
+| `POST` | `/api/download-playlist` | Descarga en lote las pistas de una lista |
 | `GET` | `/api/history` | Historial de descargas disponibles |
+| `DELETE` | `/api/history` | Vacia el historial y borra los archivos |
 | `GET` | `/api/download-file/<filename>` | Envia el archivo al navegador |
 | `DELETE` | `/api/delete/<filename>` | Elimina el archivo del disco |
 
@@ -223,9 +229,39 @@ Responde `201 Created` con la entrada del historial: `filename`, `title`,
 |--------|-----------|
 | `400` | URL invalida, formato no soportado, video en directo o demasiado largo |
 | `404` | El archivo pedido no existe en `downloads/` |
-| `409` | El archivo esta bloqueado por otro programa y no se puede borrar |
+| `409` | El video ya esta descargado, o el archivo esta bloqueado por otro programa |
 | `500` | Error inesperado del servidor |
 | `502` | YouTube rechazo la peticion (video privado, borrado, con edad, sin red) |
+
+---
+
+## Listas de reproduccion
+
+`POST /api/playlist-info` devuelve el contenido de una lista sin descargar nada:
+titulo, numero de pistas, artistas distintos, duracion total y el listado.
+
+`POST /api/download-playlist` las descarga una a una. Un fallo en una pista no
+aborta el lote: se registra en `failed` y sigue con la siguiente. Las pistas ya
+descargadas se devuelven en `skipped`.
+
+```bash
+curl -X POST http://localhost:5000/api/download-playlist   -H "Content-Type: application/json"   -d '{"url": "https://www.youtube.com/playlist?list=PL...", "format": "mp3"}'
+```
+
+### Radios y mixes automaticos
+
+Los enlaces con `list=RD...` (o `UL...`, `LM...`) **no se descargan en lote**.
+No son listas publicadas por nadie: las genera el algoritmo de YouTube, cambian
+en cada sesion, no tienen contenido fijo y son potencialmente infinitas. La
+vista previa si funciona, para que puedas ver que contienen. Para descargar el
+video que origina la radio, quita el resto de la URL y deja solo `watch?v=...`.
+
+Listas que si se descargan:
+
+| Prefijo | Que es |
+|---------|--------|
+| `PL...` | Lista creada por una persona |
+| `OLAK5uy_...` | Album de YouTube Music |
 
 ---
 
@@ -245,6 +281,8 @@ Todas las variables se definen en el `.env` (ver `.env.example`).
 | `MAX_DURATION_SECONDS` | `7200` | Duracion maxima por video (`0` = sin limite) |
 | `SOCKET_TIMEOUT` | `30` | Timeout de red de yt-dlp |
 | `HISTORY_LIMIT` | `100` | Entradas conservadas en el historial |
+| `PLAYLIST_MAX_ITEMS` | `50` | Pistas descargadas por peticion de lista |
+| `PLAYLIST_PREVIEW_ITEMS` | `200` | Pistas leidas en la vista previa |
 | `CORS_ORIGINS` | `*` | Origenes permitidos, separados por comas |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` o `ERROR` |
 | `LOG_FILE` | (vacio) | Ruta de un log rotativo. Vacio = solo consola |

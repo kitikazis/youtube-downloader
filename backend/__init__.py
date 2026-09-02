@@ -3,6 +3,7 @@
 from .services import (
     DownloadError,
     DownloadService,
+    DuplicateDownloadError,
     FileInUseError,
     FileNotFoundInLibraryError,
     ServiceError,
@@ -16,4 +17,5 @@ __all__ = [
     "DownloadError",
     "FileNotFoundInLibraryError",
     "FileInUseError",
+    "DuplicateDownloadError",
 ]

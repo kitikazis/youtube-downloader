@@ -68,6 +68,10 @@ class Config:
     SOCKET_TIMEOUT = _env_int("SOCKET_TIMEOUT", 30)
     # Numero maximo de entradas conservadas en el historial.
     HISTORY_LIMIT = _env_int("HISTORY_LIMIT", 100)
+    # Pistas maximas que se descargan de una lista en una sola peticion.
+    PLAYLIST_MAX_ITEMS = _env_int("PLAYLIST_MAX_ITEMS", 50)
+    # Pistas maximas que se listan en la vista previa de una lista.
+    PLAYLIST_PREVIEW_ITEMS = _env_int("PLAYLIST_PREVIEW_ITEMS", 200)
     # Longitud maxima del nombre de archivo generado (sin extension).
     MAX_FILENAME_LENGTH = _env_int("MAX_FILENAME_LENGTH", 120)
 

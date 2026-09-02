@@ -59,6 +59,8 @@ def create_service(app: Flask) -> DownloadService:
         history_limit=app.config.get("HISTORY_LIMIT", 100),
         max_filename_length=app.config.get("MAX_FILENAME_LENGTH", 120),
         socket_timeout=app.config.get("SOCKET_TIMEOUT", 30),
+        playlist_max_items=app.config.get("PLAYLIST_MAX_ITEMS", 50),
+        playlist_preview_items=app.config.get("PLAYLIST_PREVIEW_ITEMS", 200),
     )
 
 
